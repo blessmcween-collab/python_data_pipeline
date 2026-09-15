@@ -1,0 +1,14 @@
+_source,_reject_reason,customer_id,full_name,email,country,signup_date,credit_limit,is_active,age,order_id,order_date,quantity,unit_price,status,ship_country,ship_method
+customers,full_name: required value is missing,C007,,george@example.com,GB,2023-07-04,900.0,True,38,,,,,,,
+customers,customer_id: required value is missing,,Hana Suzuki,hana@example.com,JP,2023-08-19,1100.0,True,27,,,,,,,
+customers,country: value outside allowed range/set,C009,Ivan Petrov,ivan@example.com,XX,2023-09-30,600.0,True,45,,,,,,,
+customers,credit_limit: value outside allowed range/set,C010,Julia Meyer,julia@example.com,DE,2023-10-05,-500.0,False,31,,,,,,,
+customers,signup_date: required value is missing,C011,Kwame Mensah,kwame@example.com,GH,,1400.0,True,36,,,,,,,
+customers,age: value outside allowed range/set,C012,Lena Novak,lena@example.com,PL,2023-12-01,750.0,False,250,,,,,,,
+orders,quantity: required value is missing,C003,,,,,,,,O-1004,2024-03-25,,89.95,pending,NG,standard
+orders,quantity: not a valid integer,C004,,,,,,,,O-1006,2024-04-11,,45.0,cancelled,GB,standard
+orders,customer_id: required value is missing,,,,,,,,,O-1008,2024-05-14,2,75.0,pending,GB,standard
+orders,order_date: required value is missing,C010,,,,,,,,O-1009,,1,220.0,delivered,DE,standard
+orders,unit_price: required value is missing,C014,,,,,,,,O-1011,2024-05-28,2,,delivered,EG,express
+orders,quantity: value outside allowed range/set,C015,,,,,,,,O-1012,2024-06-01,-3,60.0,delivered,ES,standard
+orders,status: value outside allowed range/set,C999,,,,,,,,O-1015,2024-06-12,2,55.0,unknown_status,GB,standard

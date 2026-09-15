@@ -1,0 +1,197 @@
+# ---------------------------------------------------------------------------
+# Pipeline configuration
+#
+# Every path is relative to this file. Any value can be overridden from the
+# environment, e.g. PIPELINE__LOGGING__LEVEL=DEBUG
+# ---------------------------------------------------------------------------
+
+pipeline:
+  name: customer-orders
+  output_dir: data/output
+  quarantine_rejects: true   # write unusable rows to rejected_rows.csv
+  max_reject_ratio: 0.5      # fail the run if over half the rows are unusable
+  fail_fast: false           # keep going after a recoverable error
+
+logging:
+  level: INFO                # console level; the log file always records DEBUG
+  file: logs/pipeline.log
+  max_bytes: 1048576
+  backup_count: 3
+
+sources:
+  # -------------------------------------------------------------------------
+  - name: customers
+    type: csv
+    path: data/input/customers.csv
+    options:
+      delimiter: ","
+      encoding: utf-8-sig    # tolerates the byte-order mark Excel adds
+    schema:
+      dedupe_on: [customer_id]
+      null_tokens: ["", "na", "n/a", "null", "none", "-", "unknown"]
+      fields:
+        - name: customer_id
+          source_name: customer_id
+          type: string
+          required: true
+          transform: [strip, upper]
+
+        - name: full_name
+          type: string
+          required: true
+          transform: [strip, collapse_spaces, title]
+
+        - name: email
+          type: string
+          transform: [strip, lower]
+
+        - name: country
+          type: category
+          required: true
+          transform: [strip, upper]
+          allowed: [GB, US, NG, SE, AE, JP, DE, GH, PL, IT, EG, ES, IN, FR]
+
+        - name: signup_date
+          type: date
+          required: true
+
+        - name: credit_limit
+          type: float
+          fill: median         # a missing limit becomes the median of the column
+          min: 0
+          transform: [strip_currency]
+
+        - name: is_active
+          type: boolean
+          fill: default
+          default: false
+
+        - name: age
+          type: integer
+          fill: median
+          min: 16
+          max: 120
+
+  # -------------------------------------------------------------------------
+  - name: orders
+    type: json
+    path: data/input/orders.json
+    options:
+      record_path: data       # records live under the top-level "data" key
+    schema:
+      dedupe_on: [order_id]
+      fields:
+        - name: order_id
+          type: string
+          required: true
+          transform: [strip, upper]
+
+        - name: customer_id
+          type: string
+          required: true
+          transform: [strip, upper]
+
+        - name: order_date
+          type: date
+          required: true
+
+        - name: quantity
+          type: integer
+          required: true
+          min: 1
+          max: 1000
+
+        - name: unit_price
+          type: float
+          required: true
+          min: 0
+          transform: [strip_currency]
+
+        - name: status
+          type: category
+          required: true
+          transform: [strip, lower]
+          allowed: [pending, shipped, delivered, cancelled, refunded]
+
+        - name: ship_country
+          source_name: shipping_country   # flattened from the nested object
+          type: category
+          transform: [strip, upper]
+
+        - name: ship_method
+          source_name: shipping_method
+          type: category
+          fill: default
+          default: standard
+          transform: [strip, lower]
+
+# ---------------------------------------------------------------------------
+# Transforms run in order. Each one names the dataset it reads and the dataset
+# it writes, so later steps can build on earlier ones.
+# ---------------------------------------------------------------------------
+transforms:
+  - type: derive_arithmetic
+    dataset: orders
+    target: line_total
+    left: quantity
+    op: "*"
+    right: unit_price
+    round: 2
+
+  - type: filter_rows
+    dataset: orders
+    column: status
+    op: in
+    value: [shipped, delivered]
+    name: fulfilled_orders
+
+  - type: join
+    left: customers
+    right: fulfilled_orders
+    left_on: customer_id
+    how: inner
+    name: customer_orders
+
+  - type: derive_date_part
+    dataset: customer_orders
+    source: order_date
+    part: year_month
+    target: order_month
+
+  - type: map_values
+    dataset: customer_orders
+    source: ship_method
+    target: ship_tier
+    mapping:
+      express: priority
+      standard: economy
+    default: economy
+
+  - type: aggregate
+    dataset: customer_orders
+    name: customer_summary
+    group_by: [customer_id, full_name, country]
+    sort_by: total_spend
+    ascending: false
+    aggregations:
+      - { column: line_total, func: sum, target: total_spend, round: 2 }
+      - { column: order_id, func: nunique, target: order_count }
+      - { column: quantity, func: sum, target: units_bought }
+      - { column: order_date, func: max, target: last_order_date }
+
+  - type: aggregate
+    dataset: customer_orders
+    name: monthly_revenue
+    group_by: [order_month]
+    sort_by: order_month
+    ascending: true
+    aggregations:
+      - { column: line_total, func: sum, target: revenue, round: 2 }
+      - { column: order_id, func: nunique, target: orders }
+
+# ---------------------------------------------------------------------------
+outputs:
+  - { dataset: customers,        filename: customers_clean.csv,   format: csv }
+  - { dataset: orders,           filename: orders_clean.csv,      format: csv }
+  - { dataset: customer_summary, filename: customer_summary.csv,  format: csv }
+  - { dataset: monthly_revenue,  filename: monthly_revenue.json,  format: json }
